@@ -9,29 +9,6 @@ from tqdm import tqdm, trange
 import numpy as np
 from torchvision.datasets.utils import download_and_extract_archive
 
-# Downloading From Source
-dataset_url = "https://s3.amazonaws.com/fast-ai-imageclas/cifar10.tgz"
-download_and_extract_archive(dataset_url, download_root="./data")
-
-print(os.listdir("./data/cifar10/train"))
-print(os.listdir("./data/cifar10/test"))
-
-mean_std_values = ((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-train_transform = transforms.Compose([transforms.RandomCrop(32),
-                                      transforms.RandomHorizontalFlip(),
-                                      transforms.AugMix(),
-                                      transforms.ToTensor(),
-                                      transforms.Normalize(*mean_std_values, inplace=True)])
-val_transform = transforms.Compose([transforms.ToTensor(),
-                                    transforms.Normalize(*mean_std_values)])
-
-train_set = ImageFolder("./data/cifar10", train_transform)
-valid_set = ImageFolder("./data/cifar10", val_transform)
-
-batch_size = 256
-train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True)
-valid_loader = DataLoader(valid_set, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
-
 
 # Part 27 - PyTorch Course Training
 
@@ -74,5 +51,116 @@ class ResNet9(nn.Module):
         return x
 
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model = ResNet9(3, 10).to(device)
+
+# Part 28 - Pytorch Training Course
+
+# Training Loop
+
+def calculate_accuracy(pred, y):
+    top_pred = pred.argmax(1, keepdim=True)
+    correct = top_pred.eq(y.view_as(top_pred)).sum()
+    acc = correct.float() / y.shape[0]
+    return acc
+
+
+def train(model, dataloader, optimizer, criterion, device):
+    epoch_loss = 0
+    epoch_acc = 0
+
+    model.train()
+
+    for features, labels in tqdm(dataloader, desc='Training Phase', leave=False):
+        # Sending features and labels to device
+        features = features.to(device)
+        labels = labels.to(device)
+
+        # Forward pass; making predictions and calculating loss
+        pred = model(features)
+        loss = criterion(pred, labels)
+
+        # Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # Calculating accuracies
+        acc = calculate_accuracy(pred, labels)
+        epoch_loss += loss.item()
+        epoch_acc += acc.item()
+
+    return epoch_loss / len(dataloader), epoch_acc / len(dataloader)
+
+
+def evaluate(model, dataloader, criterion, device):
+    epoch_loss = 0
+    epoch_acc = 0
+
+    model.eval()
+
+    with torch.no_grad():
+        for features, labels in tqdm(dataloader, desc='Evaluation Phase', leave=False):
+            features = features.to(device)
+            labels = labels.to(device)
+
+            pred = model(features)
+
+            loss = criterion(pred, labels)
+            acc = calculate_accuracy(pred, labels)
+
+            epoch_loss += loss.item()
+            epoch_acc += acc.item()
+
+    return epoch_loss / len(dataloader), epoch_acc / len(dataloader)
+
+
+if __name__ == '__main__':
+    # Downloading From Source
+    dataset_url = "https://s3.amazonaws.com/fast-ai-imageclas/cifar10.tgz"
+    download_and_extract_archive(dataset_url, download_root="./data")
+
+    print(os.listdir("./data/cifar10/train"))
+    print(os.listdir("./data/cifar10/test"))
+
+    mean_std_values = ((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+    train_transform = transforms.Compose([transforms.RandomCrop(32),
+                                          transforms.RandomHorizontalFlip(),
+                                          transforms.AugMix(),
+                                          transforms.ToTensor(),
+                                          transforms.Normalize(*mean_std_values, inplace=True)])
+    val_transform = transforms.Compose([transforms.ToTensor(),
+                                        transforms.Normalize(*mean_std_values)])
+
+    train_set = ImageFolder("./data/cifar10", train_transform)
+    valid_set = ImageFolder("./data/cifar10", val_transform)
+
+    batch_size = 256
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True)
+    valid_loader = DataLoader(valid_set, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True)
+
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = ResNet9(3, 10).to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
+
+    EPOCHS = 15
+    history = {
+        'train_loss': [],
+        'train_acc': [],
+        'val_loss': [],
+        'val_acc': []
+    }
+
+    for epoch in trange(EPOCHS, desc="Epoch Number"):
+        train_loss, train_acc = train(model, train_loader, optimizer, criterion, device)
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+
+        valid_loss, valid_acc = evaluate(model, valid_loader, criterion, device)
+        history['val_loss'].append(valid_loss)
+        history['val_acc'].append(valid_acc)
+
+        print(f"Epoch: {epoch + 1:02}")
+        print(f"\tTrain Loss: {train_loss:>7.3f} | Training Accuracy: {train_acc * 100:>7.2f}%")
+        print(f"\tValidation Loss: {valid_loss:>7.3f} | Validation Accuracy: {valid_acc * 100:>7.2f}%")
